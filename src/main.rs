@@ -22,7 +22,7 @@ fn main() {
 			}),
 			HexGrid,
 			WireframePlugin,
-			PanOrbitCameraPlugin
+			PanOrbitCameraPlugin,
 		))
 		.run();
 }

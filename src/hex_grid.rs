@@ -9,6 +9,10 @@ use bevy::{
 };
 use bevy_panorbit_camera::PanOrbitCamera;
 
+extern crate rand;
+use rand::prelude::*;
+use rand_chacha::ChaCha20Rng;
+
 pub struct HexGrid;
 
 pub struct HexCoord {
@@ -18,19 +22,20 @@ pub struct HexCoord {
 const WIREFRAME: bool = true;
 const OUTER_RADIUS: f32 = 1.;
 const INNER_RADIUS: f32 = OUTER_RADIUS * 0.866025404;
-const HEX_CORNERS: [Vec3; 7] = [
+const CHUNK_SIZE: u32 = 16;
+const HEX_CORNERS: [Vec3; 6] = [
 	Vec3::new(0., 0., OUTER_RADIUS),
 	Vec3::new(INNER_RADIUS, 0., 0.5 * OUTER_RADIUS),
 	Vec3::new(INNER_RADIUS, 0., -0.5 * OUTER_RADIUS),
 	Vec3::new(0., 0., -OUTER_RADIUS),
 	Vec3::new(-INNER_RADIUS, 0., -0.5 * OUTER_RADIUS),
 	Vec3::new(-INNER_RADIUS, 0., 0.5 * OUTER_RADIUS),
-	Vec3::new(0., 0., OUTER_RADIUS),
 ];
 
 impl Plugin for HexGrid {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Startup, (create_hex_grid, setup));
+		app.add_systems(Startup, (create_hex_grid, setup))
+			.add_systems(Update, draw_gizmos);
 		if WIREFRAME {
 			app.insert_resource(WireframeConfig {
 				global: true,
@@ -62,6 +67,20 @@ fn setup(mut commands: Commands) {
 	});
 }
 
+fn draw_gizmos(mut gizmos: Gizmos) {
+	gizmos.arrow(Vec3::ZERO, Vec3::Y * 1.5, Color::GREEN);
+	gizmos.arrow(Vec3::ZERO, Vec3::Z * 1.5, Color::BLUE);
+	gizmos.arrow(Vec3::ZERO, Vec3::X * 1.5, Color::RED);
+
+	for i in 0..6 {
+		gizmos.arrow(
+			HEX_CORNERS[i],
+			HEX_CORNERS[i] + Vec3::Y * (i + 1) as f32,
+			Color::ALICE_BLUE,
+		);
+	}
+}
+
 fn create_hex_grid(
 	mut commands: Commands,
 	mut materials: ResMut<Assets<StandardMaterial>>,
@@ -73,17 +92,25 @@ fn create_hex_grid(
 		..default()
 	});
 
-	let count = 100 * 3 * 6;
+	let count = (CHUNK_SIZE * CHUNK_SIZE * 3 * 6) as usize;
 	let mut verts = Vec::with_capacity(count);
 	let mut uvs = Vec::with_capacity(count);
 	let mut normals = Vec::with_capacity(count);
 	let mut indices = Vec::with_capacity(count);
+	let mut rng = ChaCha20Rng::seed_from_u64(2);
 
-	for z in 0..10 {
-		for x in 0..10 {
-			let off_pos = Vec3::new(x as f32, x as f32 * 1., z as f32);
+	for z in 0..CHUNK_SIZE {
+		for x in 0..CHUNK_SIZE {
+			let off_pos = Vec3::new(x as f32, rng.gen_range(0..3) as f32, z as f32);
 			let grid_pos = to_hex_pos(off_pos);
 			create_tile(grid_pos, &mut verts, &mut uvs, &mut normals, &mut indices);
+
+			//draw sides
+
+			let idx = ((x * 7) + (z * CHUNK_SIZE * 7)) as u32;
+			add_tile_sides(x, z, idx, &mut indices);
+			// create_tile_side(idx + 2, idx + 7 + 5, &mut indices);
+			// create_tile_side(idx + 3, idx + 7 + 5, &mut indices);
 		}
 	}
 	let mesh = Mesh::new(
@@ -104,6 +131,39 @@ fn create_hex_grid(
 fn to_hex_pos(pos: Vec3) -> Vec3 {
 	let x = (pos.x + pos.z * 0.5 - (pos.z / 2.).floor()) * (INNER_RADIUS * 2.);
 	return Vec3::new(x, pos.y, pos.z * OUTER_RADIUS * 1.5);
+}
+
+fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>) {
+	let c_tile = idx + 1;
+	if x < CHUNK_SIZE - 1 {
+		let n_tile = idx + 8;
+		create_quad(c_tile + 1, c_tile + 2, n_tile + 4, n_tile + 5, indices);
+	}
+
+	if z < CHUNK_SIZE - 1 {
+		if z % 2 == 0 {
+			let d_tile = c_tile + CHUNK_SIZE * 7;
+			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices);
+		} else if x < CHUNK_SIZE - 1 {
+			let d_tile = c_tile + (CHUNK_SIZE + 1) * 7;
+			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices);
+		}
+	}
+
+	if x > 0 && z % 2 == 0 {
+		let d_tile = c_tile + CHUNK_SIZE * 7;
+		create_quad(c_tile, c_tile + 6, d_tile + 3, d_tile + 4, indices);
+	}
+}
+
+fn create_quad(v1: u32, v2: u32, v3: u32, v4: u32, indices: &mut Vec<u32>) {
+	indices.push(v1);
+	indices.push(v3);
+	indices.push(v2);
+
+	indices.push(v1);
+	indices.push(v4);
+	indices.push(v3);
 }
 
 fn create_tile(
