@@ -15,11 +15,7 @@ use rand_chacha::ChaCha20Rng;
 
 pub struct HexGrid;
 
-pub struct HexCoord {
-	pub pos: Vec3,
-}
-
-const WIREFRAME: bool = true;
+const WIREFRAME: bool = false;
 const OUTER_RADIUS: f32 = 1.;
 const INNER_RADIUS: f32 = OUTER_RADIUS * 0.866025404;
 const CHUNK_SIZE: u32 = 16;
@@ -104,15 +100,15 @@ fn create_hex_grid(
 			let off_pos = Vec3::new(x as f32, rng.gen_range(0..3) as f32, z as f32);
 			let grid_pos = to_hex_pos(off_pos);
 			create_tile(grid_pos, &mut verts, &mut uvs, &mut normals, &mut indices);
-
-			//draw sides
-
-			let idx = ((x * 7) + (z * CHUNK_SIZE * 7)) as u32;
-			add_tile_sides(x, z, idx, &mut indices);
-			// create_tile_side(idx + 2, idx + 7 + 5, &mut indices);
-			// create_tile_side(idx + 3, idx + 7 + 5, &mut indices);
 		}
 	}
+	for z in 0..CHUNK_SIZE {
+		for x in 0..CHUNK_SIZE {
+			let idx = ((x * 7) + (z * CHUNK_SIZE * 7)) as u32;
+			add_tile_sides(x, z, idx, &mut indices, &verts);
+		}
+	}
+
 	let mesh = Mesh::new(
 		PrimitiveTopology::TriangleList,
 		RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
@@ -133,30 +129,47 @@ fn to_hex_pos(pos: Vec3) -> Vec3 {
 	return Vec3::new(x, pos.y, pos.z * OUTER_RADIUS * 1.5);
 }
 
-fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>) {
+fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>, verts: &Vec<Vec3>) {
 	let c_tile = idx + 1;
+	const TILE_WIDTH: u32 = 7;
+	const ROW_WIDTH: u32 = CHUNK_SIZE * TILE_WIDTH;
+
 	if x < CHUNK_SIZE - 1 {
-		let n_tile = idx + 8;
-		create_quad(c_tile + 1, c_tile + 2, n_tile + 4, n_tile + 5, indices);
+		let n_tile = c_tile + TILE_WIDTH;
+		create_quad(
+			c_tile + 1,
+			c_tile + 2,
+			n_tile + 4,
+			n_tile + 5,
+			indices,
+			verts,
+		);
 	}
 
 	if z < CHUNK_SIZE - 1 {
 		if z % 2 == 0 {
-			let d_tile = c_tile + CHUNK_SIZE * 7;
-			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices);
+			let d_tile = c_tile + ROW_WIDTH;
+			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices, verts);
 		} else if x < CHUNK_SIZE - 1 {
-			let d_tile = c_tile + (CHUNK_SIZE + 1) * 7;
-			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices);
+			let d_tile = c_tile + ROW_WIDTH + TILE_WIDTH;
+			create_quad(c_tile, c_tile + 1, d_tile + 3, d_tile + 4, indices, verts);
 		}
 	}
 
 	if x > 0 && z % 2 == 0 {
-		let d_tile = c_tile + CHUNK_SIZE * 7;
-		create_quad(c_tile, c_tile + 6, d_tile + 3, d_tile + 4, indices);
+		let d_tile = c_tile + ROW_WIDTH - TILE_WIDTH;
+		create_quad(c_tile + 5, c_tile, d_tile + 2, d_tile + 3, indices, verts);
+	}
+	if z % 2 == 1 && z < CHUNK_SIZE - 1 {
+		let d_tile = c_tile + ROW_WIDTH;
+		create_quad(c_tile + 5, c_tile, d_tile + 2, d_tile + 3, indices, verts);
 	}
 }
 
-fn create_quad(v1: u32, v2: u32, v3: u32, v4: u32, indices: &mut Vec<u32>) {
+fn create_quad(v1: u32, v2: u32, v3: u32, v4: u32, indices: &mut Vec<u32>, verts: &Vec<Vec3>) {
+	if verts[v1 as usize].y == verts[v3 as usize].y {
+		return;
+	}
 	indices.push(v1);
 	indices.push(v3);
 	indices.push(v2);
@@ -174,13 +187,12 @@ fn create_tile(
 	indices: &mut Vec<u32>,
 ) {
 	let idx = verts.len() as u32;
-	// [v0,v1,v2,v3,v4,v5,v6]
 	normals.push(Vec3::Y);
-	uvs.push(pos.normalize().xz());
+	uvs.push(pos.xz());
 	verts.push(pos);
 	for i in 0..6 {
 		verts.push(pos + HEX_CORNERS[i]);
-		uvs.push((pos + HEX_CORNERS[i]).normalize().xz());
+		uvs.push((pos + HEX_CORNERS[i]).xz());
 		normals.push(Vec3::Y);
 		indices.push(idx);
 		indices.push(idx + 1 + i as u32);
