@@ -30,8 +30,7 @@ const HEX_CORNERS: [Vec3; 6] = [
 
 impl Plugin for HexGrid {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Startup, (create_hex_grid, setup))
-			.add_systems(Update, draw_gizmos);
+		app.add_systems(Startup, (create_hex_grid, setup));
 		if WIREFRAME {
 			app.insert_resource(WireframeConfig {
 				global: true,
