@@ -15,10 +15,11 @@ use rand_chacha::ChaCha20Rng;
 
 pub struct HexGrid;
 
+const MAP_SIZE: u32 = 64;
 const WIREFRAME: bool = false;
 const OUTER_RADIUS: f32 = 1.;
 const INNER_RADIUS: f32 = OUTER_RADIUS * 0.866025404;
-const CHUNK_SIZE: u32 = 16;
+const CHUNK_SIZE: u32 = 32;
 const HEX_CORNERS: [Vec3; 6] = [
 	Vec3::new(0., 0., OUTER_RADIUS),
 	Vec3::new(INNER_RADIUS, 0., 0.5 * OUTER_RADIUS),
@@ -57,7 +58,7 @@ fn setup(mut commands: Commands) {
 			shadows_enabled: true,
 			..default()
 		},
-		transform: Transform::from_xyz(0.0, 16.0, 16.0).looking_at(Vec3::ZERO, Vec3::Y),
+		transform: Transform::from_xyz(0.0, 16.0, 0.).looking_at(Vec3::ZERO, Vec3::Y),
 		..default()
 	});
 }
@@ -86,7 +87,21 @@ fn create_hex_grid(
 		base_color_texture: Some(images.add(uv_debug_texture())),
 		..default()
 	});
+	for z in 0..MAP_SIZE {
+		for x in 0..MAP_SIZE {
+			let pos = to_hex_pos(Vec3::new(x as f32, 0., z as f32) * CHUNK_SIZE as f32);
+			let mesh = create_chunk();
+			commands.spawn(PbrBundle {
+				mesh: meshes.add(mesh),
+				material: debug_material.clone(),
+				transform: Transform::from_translation(pos),
+				..default()
+			});
+		}
+	}
+}
 
+fn create_chunk() -> Mesh {
 	let count = (CHUNK_SIZE * CHUNK_SIZE * 3 * 6) as usize;
 	let mut verts = Vec::with_capacity(count);
 	let mut uvs = Vec::with_capacity(count);
@@ -116,11 +131,7 @@ fn create_hex_grid(
 	.with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
 	.with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
 	.with_inserted_indices(Indices::U32(indices));
-	commands.spawn(PbrBundle {
-		mesh: meshes.add(mesh),
-		material: debug_material,
-		..default()
-	});
+	return mesh;
 }
 
 fn to_hex_pos(pos: Vec3) -> Vec3 {
