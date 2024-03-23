@@ -9,16 +9,15 @@ use bevy::{
 };
 use bevy_panorbit_camera::PanOrbitCamera;
 
-extern crate rand;
-use rand::prelude::*;
-use rand_chacha::ChaCha20Rng;
+use noise::{NoiseFn, SuperSimplex};
 
 pub struct HexGrid;
 
-const MAP_SIZE: u32 = 64;
-const WIREFRAME: bool = false;
+const MAP_SIZE: u32 = 2;
+const WIREFRAME: bool = true;
 const OUTER_RADIUS: f32 = 1.;
 const INNER_RADIUS: f32 = OUTER_RADIUS * 0.866025404;
+const NOISE_SCALE: f64 = 3.;
 const CHUNK_SIZE: u32 = 32;
 const HEX_CORNERS: [Vec3; 6] = [
 	Vec3::new(0., 0., OUTER_RADIUS),
@@ -31,7 +30,8 @@ const HEX_CORNERS: [Vec3; 6] = [
 
 impl Plugin for HexGrid {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Startup, (create_hex_grid, setup));
+		app.add_systems(Startup, (create_hex_grid, setup))
+			.add_systems(Update, draw_gizmos);
 		if WIREFRAME {
 			app.insert_resource(WireframeConfig {
 				global: true,
@@ -50,7 +50,10 @@ fn setup(mut commands: Commands) {
 			transform: camera_and_light_transform,
 			..default()
 		},
-		PanOrbitCamera::default(),
+		PanOrbitCamera {
+			radius: 5.0.into(),
+			..Default::default()
+		},
 	));
 
 	commands.spawn(DirectionalLightBundle {
@@ -87,10 +90,12 @@ fn create_hex_grid(
 		base_color_texture: Some(images.add(uv_debug_texture())),
 		..default()
 	});
+
+	let noise = SuperSimplex::new(1);
 	for z in 0..MAP_SIZE {
 		for x in 0..MAP_SIZE {
 			let pos = to_hex_pos(Vec3::new(x as f32, 0., z as f32) * CHUNK_SIZE as f32);
-			let mesh = create_chunk();
+			let mesh = create_chunk(x, z, &noise);
 			commands.spawn(PbrBundle {
 				mesh: meshes.add(mesh),
 				material: debug_material.clone(),
@@ -101,17 +106,17 @@ fn create_hex_grid(
 	}
 }
 
-fn create_chunk() -> Mesh {
-	let count = (CHUNK_SIZE * CHUNK_SIZE * 3 * 6) as usize;
-	let mut verts = Vec::with_capacity(count);
-	let mut uvs = Vec::with_capacity(count);
-	let mut normals = Vec::with_capacity(count);
-	let mut indices = Vec::with_capacity(count);
-	let mut rng = ChaCha20Rng::seed_from_u64(2);
+fn create_chunk(c_x: u32, c_z: u32, noise: &SuperSimplex) -> Mesh {
+	const COUNT: usize = (CHUNK_SIZE * CHUNK_SIZE * 3 * 6) as usize;
+	let mut verts = Vec::with_capacity(COUNT);
+	let mut uvs = Vec::with_capacity(COUNT);
+	let mut normals = Vec::with_capacity(COUNT);
+	let mut indices = Vec::with_capacity(COUNT);
 
 	for z in 0..CHUNK_SIZE {
 		for x in 0..CHUNK_SIZE {
-			let off_pos = Vec3::new(x as f32, rng.gen_range(0..3) as f32, z as f32);
+			let height = sample_height(x + c_x * CHUNK_SIZE, z + c_z * CHUNK_SIZE, noise);
+			let off_pos = Vec3::new(x as f32, height, z as f32);
 			let grid_pos = to_hex_pos(off_pos);
 			create_tile(grid_pos, &mut verts, &mut uvs, &mut normals, &mut indices);
 		}
@@ -122,6 +127,16 @@ fn create_chunk() -> Mesh {
 			add_tile_sides(x, z, idx, &mut indices, &verts);
 		}
 	}
+
+	add_chunk_sides(
+		c_x,
+		c_z,
+		&mut verts,
+		&mut indices,
+		&mut normals,
+		&mut uvs,
+		noise,
+	);
 
 	let mesh = Mesh::new(
 		PrimitiveTopology::TriangleList,
@@ -137,6 +152,60 @@ fn create_chunk() -> Mesh {
 fn to_hex_pos(pos: Vec3) -> Vec3 {
 	let x = (pos.x + pos.z * 0.5 - (pos.z / 2.).floor()) * (INNER_RADIUS * 2.);
 	return Vec3::new(x, pos.y, pos.z * OUTER_RADIUS * 1.5);
+}
+
+fn add_chunk_sides(
+	c_x: u32,
+	c_z: u32,
+	verts: &mut Vec<Vec3>,
+	indices: &mut Vec<u32>,
+	normals: &mut Vec<Vec3>,
+	uvs: &mut Vec<Vec2>,
+	noise: &SuperSimplex,
+) {
+	if c_x < MAP_SIZE - 1 {
+		//draw top side
+		let x = CHUNK_SIZE - 1;
+		for z in 0..CHUNK_SIZE {
+			let c_tile = ((x * 7) + (z * 7 * CHUNK_SIZE)) as u32 + 1;
+			let mut height = sample_height(x + 1 + c_x * CHUNK_SIZE, z + c_z * CHUNK_SIZE, noise);
+			let mut off_pos = Vec3::new(x as f32, height, z as f32);
+			let mut grid_pos = to_hex_pos(off_pos);
+			sample_height(x + 1 + c_x * CHUNK_SIZE, z + c_z * CHUNK_SIZE, noise);
+
+			let idx = verts.len() as u32;
+
+			verts.push(grid_pos + HEX_CORNERS[2]);
+			uvs.push((grid_pos + HEX_CORNERS[2]).xz());
+			normals.push(Vec3::Y);
+
+			verts.push(grid_pos + HEX_CORNERS[1]);
+			uvs.push((grid_pos + HEX_CORNERS[1]).xz());
+			normals.push(Vec3::Y);
+			create_quad(c_tile + 1, c_tile + 2, idx, idx + 1, indices, verts);
+
+			if z % 2 == 1 && z > 0 {
+				height = sample_height(x + 1 + c_x * CHUNK_SIZE, z + 1 + c_z * CHUNK_SIZE, noise);
+				off_pos = Vec3::new(x as f32, height, z as f32);
+				grid_pos = to_hex_pos(off_pos);
+
+				verts.push(grid_pos + HEX_CORNERS[3]);
+				uvs.push((grid_pos + HEX_CORNERS[3]).xz());
+				normals.push(Vec3::Y);
+
+				create_quad(c_tile + 2, c_tile + 3, idx + 1, idx + 2, indices, verts);
+			}
+		}
+	}
+	if c_z < CHUNK_SIZE * (MAP_SIZE - 1) {
+		//draw right side
+		let z = c_z + CHUNK_SIZE;
+		for x in 0..CHUNK_SIZE {
+			let height = sample_height(x + c_x, z + c_z, noise);
+			let off_pos = Vec3::new(x as f32, height, z as f32);
+			let grid_pos = to_hex_pos(off_pos);
+		}
+	}
 }
 
 fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>, verts: &Vec<Vec3>) {
@@ -177,9 +246,9 @@ fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>, verts: &Vec<
 }
 
 fn create_quad(v1: u32, v2: u32, v3: u32, v4: u32, indices: &mut Vec<u32>, verts: &Vec<Vec3>) {
-	if verts[v1 as usize].y == verts[v3 as usize].y {
-		return;
-	}
+	// if verts[v1 as usize].y == verts[v3 as usize].y {
+	// 	return;
+	// }
 	indices.push(v1);
 	indices.push(v3);
 	indices.push(v2);
@@ -208,6 +277,12 @@ fn create_tile(
 		indices.push(idx + 1 + i as u32);
 		indices.push(idx + 1 + ((i as u32 + 1) % 6));
 	}
+}
+
+fn sample_height(x: u32, y: u32, noise: &SuperSimplex) -> f32 {
+	let value = noise.get([x as f64 / NOISE_SCALE, y as f64 / NOISE_SCALE]);
+
+	return value as f32;
 }
 
 fn uv_debug_texture() -> Image {
