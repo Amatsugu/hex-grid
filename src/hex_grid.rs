@@ -9,15 +9,14 @@ use bevy::{
 };
 use bevy_panorbit_camera::PanOrbitCamera;
 
-use noise::{NoiseFn, SuperSimplex};
+use noise::{NoiseFn, OpenSimplex, SuperSimplex};
 
 pub struct HexGrid;
 
-const MAP_SIZE: u32 = 2;
-const WIREFRAME: bool = true;
+const MAP_SIZE: u32 = 32;
+const WIREFRAME: bool = false;
 const OUTER_RADIUS: f32 = 1.;
 const INNER_RADIUS: f32 = OUTER_RADIUS * 0.866025404;
-const NOISE_SCALE: f64 = 3.;
 const CHUNK_SIZE: u32 = 32;
 const HEX_CORNERS: [Vec3; 6] = [
 	Vec3::new(0., 0., OUTER_RADIUS),
@@ -51,7 +50,6 @@ fn setup(mut commands: Commands) {
 			..default()
 		},
 		PanOrbitCamera {
-			radius: 5.0.into(),
 			..Default::default()
 		},
 	));
@@ -61,7 +59,7 @@ fn setup(mut commands: Commands) {
 			shadows_enabled: true,
 			..default()
 		},
-		transform: Transform::from_xyz(0.0, 16.0, 0.).looking_at(Vec3::ZERO, Vec3::Y),
+		transform: Transform::from_xyz(0.0, 16.0, 5.).looking_at(Vec3::ZERO, Vec3::Y),
 		..default()
 	});
 }
@@ -91,7 +89,7 @@ fn create_hex_grid(
 		..default()
 	});
 
-	let noise = SuperSimplex::new(1);
+	let noise = OpenSimplex::new(1);
 	for z in 0..MAP_SIZE {
 		for x in 0..MAP_SIZE {
 			let pos = to_hex_pos(Vec3::new(x as f32, 0., z as f32) * CHUNK_SIZE as f32);
@@ -106,7 +104,7 @@ fn create_hex_grid(
 	}
 }
 
-fn create_chunk(c_x: u32, c_z: u32, noise: &SuperSimplex) -> Mesh {
+fn create_chunk(c_x: u32, c_z: u32, noise: &OpenSimplex) -> Mesh {
 	const COUNT: usize = (CHUNK_SIZE * CHUNK_SIZE * 3 * 6) as usize;
 	let mut verts = Vec::with_capacity(COUNT);
 	let mut uvs = Vec::with_capacity(COUNT);
@@ -161,7 +159,7 @@ fn add_chunk_sides(
 	indices: &mut Vec<u32>,
 	normals: &mut Vec<Vec3>,
 	uvs: &mut Vec<Vec2>,
-	noise: &SuperSimplex,
+	noise: &OpenSimplex,
 ) {
 	if c_x < MAP_SIZE - 1 {
 		//draw top side
@@ -171,9 +169,8 @@ fn add_chunk_sides(
 			let mut height = sample_height(x + 1 + c_x * CHUNK_SIZE, z + c_z * CHUNK_SIZE, noise);
 			let mut off_pos = Vec3::new(x as f32, height, z as f32);
 			let mut grid_pos = to_hex_pos(off_pos);
-			sample_height(x + 1 + c_x * CHUNK_SIZE, z + c_z * CHUNK_SIZE, noise);
 
-			let idx = verts.len() as u32;
+			let mut idx = verts.len() as u32;
 
 			verts.push(grid_pos + HEX_CORNERS[2]);
 			uvs.push((grid_pos + HEX_CORNERS[2]).xz());
@@ -184,26 +181,76 @@ fn add_chunk_sides(
 			normals.push(Vec3::Y);
 			create_quad(c_tile + 1, c_tile + 2, idx, idx + 1, indices, verts);
 
-			if z % 2 == 1 && z > 0 {
-				height = sample_height(x + 1 + c_x * CHUNK_SIZE, z + 1 + c_z * CHUNK_SIZE, noise);
-				off_pos = Vec3::new(x as f32, height, z as f32);
-				grid_pos = to_hex_pos(off_pos);
+			if z % 2 == 1 {
+				if z > 0 {
+					height =
+						sample_height(x + 1 + c_x * CHUNK_SIZE, z - 1 + c_z * CHUNK_SIZE, noise);
+					off_pos = Vec3::new(x as f32, height, z as f32);
+					grid_pos = to_hex_pos(off_pos);
 
-				verts.push(grid_pos + HEX_CORNERS[3]);
-				uvs.push((grid_pos + HEX_CORNERS[3]).xz());
-				normals.push(Vec3::Y);
+					idx = verts.len() as u32;
+					verts.push(grid_pos + HEX_CORNERS[2]);
+					uvs.push((grid_pos + HEX_CORNERS[2]).xz());
+					normals.push(Vec3::Y);
 
-				create_quad(c_tile + 2, c_tile + 3, idx + 1, idx + 2, indices, verts);
+					verts.push(grid_pos + HEX_CORNERS[3]);
+					uvs.push((grid_pos + HEX_CORNERS[3]).xz());
+					normals.push(Vec3::Y);
+
+					create_quad(c_tile + 2, c_tile + 3, idx + 1, idx, indices, verts);
+				}
+				if z < CHUNK_SIZE - 1 {
+					height =
+						sample_height(x + 1 + c_x * CHUNK_SIZE, z + 1 + c_z * CHUNK_SIZE, noise);
+					off_pos = Vec3::new(x as f32, height, z as f32);
+					grid_pos = to_hex_pos(off_pos);
+
+					idx = verts.len() as u32;
+					verts.push(grid_pos + HEX_CORNERS[0]);
+					uvs.push((grid_pos + HEX_CORNERS[0]).xz());
+					normals.push(Vec3::Y);
+
+					verts.push(grid_pos + HEX_CORNERS[1]);
+					uvs.push((grid_pos + HEX_CORNERS[1]).xz());
+					normals.push(Vec3::Y);
+
+					create_quad(c_tile, c_tile + 1, idx + 1, idx, indices, verts);
+				}
 			}
 		}
 	}
-	if c_z < CHUNK_SIZE * (MAP_SIZE - 1) {
+	if c_z < MAP_SIZE - 1 {
 		//draw right side
-		let z = c_z + CHUNK_SIZE;
+		let z = CHUNK_SIZE - 1;
 		for x in 0..CHUNK_SIZE {
-			let height = sample_height(x + c_x, z + c_z, noise);
-			let off_pos = Vec3::new(x as f32, height, z as f32);
-			let grid_pos = to_hex_pos(off_pos);
+			let c_tile = ((x * 7) + (z * 7 * CHUNK_SIZE)) as u32 + 1;
+			let mut height = sample_height(x + c_x * CHUNK_SIZE, z + 1 + c_z * CHUNK_SIZE, noise);
+			let mut off_pos = Vec3::new(x as f32, height, z as f32);
+			let mut grid_pos = to_hex_pos(off_pos);
+
+			let idx = verts.len() as u32;
+
+			verts.push(grid_pos + HEX_CORNERS[0]);
+			uvs.push((grid_pos + HEX_CORNERS[0]).xz());
+			normals.push(Vec3::Y);
+
+			verts.push(grid_pos + HEX_CORNERS[5]);
+			uvs.push((grid_pos + HEX_CORNERS[5]).xz());
+			normals.push(Vec3::Y);
+			create_quad(c_tile + 5, c_tile, idx, idx + 1, indices, verts);
+
+			height = sample_height(x + 1 + c_x * CHUNK_SIZE, z + 1 + c_z * CHUNK_SIZE, noise);
+			off_pos = Vec3::new(x as f32, height, z as f32);
+			grid_pos = to_hex_pos(off_pos);
+
+			verts.push(grid_pos + HEX_CORNERS[0]);
+			uvs.push((grid_pos + HEX_CORNERS[0]).xz());
+			normals.push(Vec3::Y);
+
+			verts.push(grid_pos + HEX_CORNERS[1]);
+			uvs.push((grid_pos + HEX_CORNERS[1]).xz());
+			normals.push(Vec3::Y);
+			create_quad(c_tile, c_tile + 1, idx + 3, idx + 2, indices, verts);
 		}
 	}
 }
@@ -246,9 +293,9 @@ fn add_tile_sides(x: u32, z: u32, idx: u32, indices: &mut Vec<u32>, verts: &Vec<
 }
 
 fn create_quad(v1: u32, v2: u32, v3: u32, v4: u32, indices: &mut Vec<u32>, verts: &Vec<Vec3>) {
-	// if verts[v1 as usize].y == verts[v3 as usize].y {
-	// 	return;
-	// }
+	if verts[v1 as usize].y == verts[v3 as usize].y {
+		return;
+	}
 	indices.push(v1);
 	indices.push(v3);
 	indices.push(v2);
@@ -271,7 +318,7 @@ fn create_tile(
 	verts.push(pos);
 	for i in 0..6 {
 		verts.push(pos + HEX_CORNERS[i]);
-		uvs.push((pos + HEX_CORNERS[i]).xz());
+		uvs.push((pos + HEX_CORNERS[i]).xz() / CHUNK_SIZE as f32);
 		normals.push(Vec3::Y);
 		indices.push(idx);
 		indices.push(idx + 1 + i as u32);
@@ -279,10 +326,43 @@ fn create_tile(
 	}
 }
 
-fn sample_height(x: u32, y: u32, noise: &SuperSimplex) -> f32 {
-	let value = noise.get([x as f64 / NOISE_SCALE, y as f64 / NOISE_SCALE]);
+const NOISE_SCALE: f64 = 35.;
 
-	return value as f32;
+fn sample_height(x: u32, y: u32, noise: &OpenSimplex) -> f32 {
+	let mut elevation = 0.;
+
+	let x_s = x as f64 / NOISE_SCALE;
+	let y_s = y as f64 / NOISE_SCALE;
+
+	elevation += sample_layer(noise, x_s, y_s, 2.14, 0.87, 0.77, -0.2, 2.93, 4);
+	elevation += sample_layer(noise, x_s, y_s, 2.85, 2., 1., 0., -0.23, 4);
+
+	return elevation as f32;
+}
+
+fn sample_layer(
+	noise: &OpenSimplex,
+	x: f64,
+	z: f64,
+	base_roughness: f64,
+	roughness: f64,
+	persistence: f64,
+	min_value: f64,
+	strength: f64,
+	layers: usize,
+) -> f64 {
+	let mut freq: f64 = base_roughness;
+	let mut amp: f64 = 1.;
+	let mut value = 0.;
+
+	for _ in 0..layers {
+		let v = noise.get([x * freq, z * freq]);
+		value += (v + 1.) * 0.5 * amp;
+		freq *= roughness;
+		amp *= persistence;
+	}
+	value -= min_value;
+	return value * strength;
 }
 
 fn uv_debug_texture() -> Image {
