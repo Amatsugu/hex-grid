@@ -1,6 +1,7 @@
 use bevy::{pbr::wireframe::WireframePlugin, prelude::*};
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 mod hex_grid;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use hex_grid::HexGrid;
 
 fn main() {
@@ -23,6 +24,7 @@ fn main() {
 			HexGrid,
 			WireframePlugin,
 			PanOrbitCameraPlugin,
+			WorldInspectorPlugin::new(),
 		))
 		.run();
 }

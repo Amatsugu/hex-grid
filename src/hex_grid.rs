@@ -9,6 +9,8 @@ use bevy::{
 };
 use bevy_panorbit_camera::PanOrbitCamera;
 
+use bevy_inspector_egui::prelude::*;
+
 use noise::{NoiseFn, SuperSimplex};
 
 pub struct HexGrid;
