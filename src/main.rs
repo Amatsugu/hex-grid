@@ -2,6 +2,7 @@ use bevy::{pbr::wireframe::WireframePlugin, prelude::*};
 use bevy_panorbit_camera::PanOrbitCameraPlugin;
 mod hex_grid;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use iyes_perf_ui::PerfUiPlugin;
 use hex_grid::HexGrid;
 
 fn main() {
@@ -26,5 +27,9 @@ fn main() {
 			PanOrbitCameraPlugin,
 			WorldInspectorPlugin::new(),
 		))
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
+        .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
+        .add_plugins(PerfUiPlugin)
 		.run();
 }

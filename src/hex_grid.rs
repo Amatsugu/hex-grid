@@ -13,6 +13,8 @@ use bevy_inspector_egui::prelude::*;
 
 use noise::{NoiseFn, SuperSimplex};
 
+use iyes_perf_ui::{diagnostics::PerfUiEntryFPS, time::PerfUiEntryClock, PerfUiRoot};
+
 pub struct HexGrid;
 
 const MAP_SIZE: u32 = 32;
@@ -44,6 +46,12 @@ impl Plugin for HexGrid {
 }
 
 fn setup(mut commands: Commands) {
+	commands.spawn((
+		PerfUiRoot::default(),
+		PerfUiEntryFPS::default(),
+		PerfUiEntryClock::default(),
+	));
+
 	commands.spawn((
 		Camera3dBundle {
 			transform: Transform::from_xyz(0., 50., 0.)
